@@ -42,8 +42,9 @@ def bind_model(model):
         ##### DO NOT CHANGE ORDER OF TEST DATA #####
         X = ImagePreprocessing(data)
         X = np.array(X)
-        X = np.expand_dims(X, axis=-1)
-        pred = model.predict_classes(X)  # 모델 예측 결과: 0-3
+        # X = np.expand_dims(X, axis=-1)
+        pred = model.predict(X)  # 모델 예측 결과: 0-3
+        pred = np.argmax(pred, axis=1)
         print('Prediction done!\n Saving the result...')
         return pred
 
@@ -80,9 +81,28 @@ def ImagePreprocessing(img):
     h, w = IMSIZE
     print('Preprocessing ...')
     for i, im, in enumerate(img):
+        origin_shape = im.shape
+        # CLAHE
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        clahe_img = clahe.apply(im)
+
+        # Contours
+        _, threshold = cv2.threshold(clahe_img, 127, 255, 0)
+        contours, _ = cv2.findContours(threshold, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        base = np.zeros_like(im)
+        contour_img = cv2.drawContours(base, contours, -1, 255, 1)
+
+        # Merge 3 Images to make 3 Channel 
+        im = np.concatenate([
+            im.reshape((origin_shape[0], origin_shape[1], 1)),
+            clahe_img.reshape((origin_shape[0], origin_shape[1], 1)),
+            contour_img.reshape((origin_shape[0], origin_shape[1], 1))
+        ], axis=-1)
+        # Resize
         tmp = cv2.resize(im, dsize=(w, h), interpolation=cv2.INTER_AREA)
         tmp = tmp / 255.
         img[i] = tmp
+
     print(len(img), 'images processed!')
     return img
 
@@ -122,7 +142,7 @@ def SampleModelKeras(in_shape, num_classes):
 
 def imagenet(imagenet_class, in_shape, num_classes):
     base_model = imagenet_class(include_top=False,
-                                weights='imagenet',
+                                weights="imagenet",
                                 input_shape=in_shape)
 
     base_model.trainable = False
@@ -132,9 +152,11 @@ def imagenet(imagenet_class, in_shape, num_classes):
     x = base_model.output
     x = GlobalAveragePooling2D()(x)
 
-    x = Dense(256 * 4 * 4, activation="relu")(x)
-    x = Dense(512, activation="relu")(x)
-    x = Dense(64, activation="relu")(x)
+    dropout_rate = 0.5
+    dense_layers = [64, 32]
+    for node in dense_layers:
+        x = Dense(node, activation="relu")(x)
+        x = Dropout(dropout_rate)(x)
     x = Dense(num_classes, activation="softmax")(x)
 
     return Model(inputs=base_model.input, outputs=x)
@@ -167,10 +189,10 @@ if __name__ == '__main__':
 
     """ Model """
     h, w = IMSIZE
-    in_shape = (h, w, 1)
+    in_shape = (h, w, 3)
     
     # model = SampleModelKeras(in_shape=in_shape, num_classes=num_classes)
-    model = imagenet(keras.applications.ResNet50, in_shape, num_classes)
+    model = imagenet(keras.applications.InceptionV3, in_shape, num_classes)
 
     # optimizer = optimizers.SGD(lr=learning_rate, momentum=0.9, nesterov=True)
     optimizer = optimizers.Adam(lr=learning_rate, decay=1e-5)
@@ -188,7 +210,7 @@ if __name__ == '__main__':
         images = ImagePreprocessing(images)
         ## data 섞기
         images = np.array(images)
-        images = np.expand_dims(images, axis=-1)
+        # images = np.expand_dims(images, axis=-1)
         labels = np.array(labels)
         dataset = [[X, Y] for X, Y in zip(images, labels)]
         random.shuffle(dataset)
