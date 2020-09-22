@@ -8,9 +8,9 @@ import keras
 
 from keras.utils import np_utils
 #from sklearn.model_selection import train_test_split
-from keras.models import Sequential
+from keras.models import Sequential, Model
 from keras.layers import Dense, Dropout
-from keras.layers import Conv2D, MaxPooling2D, Flatten
+from keras.layers import Conv2D, MaxPooling2D, Flatten, GlobalAveragePooling2D
 from keras.layers import BatchNormalization, ReLU
 from keras.preprocessing.image import ImageDataGenerator
 from keras import optimizers
@@ -22,7 +22,7 @@ import nsml
 from nsml.constants import DATASET_PATH, GPU_NUM
 
 
-IMSIZE = 120, 60
+IMSIZE = 240, 120
 VAL_RATIO = 0.1
 RANDOM_SEED = 1234
 
@@ -111,12 +111,34 @@ def SampleModelKeras(in_shape, num_classes):
     model.add(BatchNormalization(axis=-1))
     model.add(ReLU())
 
-    model.add(Flatten())
+    # model.add(Flatten())
+    model.add(GlobalAveragePooling2D())
     model.add(Dense(256*4*4, activation='relu'))
     model.add(Dense(512, activation='relu'))
     model.add(Dense(64, activation='relu'))
     model.add(Dense(num_classes, activation='softmax'))
     return model
+
+
+def imagenet(imagenet_class, in_shape, num_classes):
+    base_model = imagenet_class(include_top=False,
+                                weights='imagenet',
+                                input_shape=in_shape)
+
+    base_model.trainable = False
+    for layer in base_model.layers:
+        layer.trainable = False
+
+    x = base_model.output
+    x = GlobalAveragePooling2D()(x)
+
+    x = Dense(256 * 4 * 4, activation="relu")(x)
+    x = Dense(512, activation="relu")(x)
+    x = Dense(64, activation="relu")(x)
+    x = Dense(num_classes, activation="softmax")(x)
+
+    return Model(inputs=base_model.input, outputs=x)
+
 
 def ParserArguments(args):
     # Setting Hyperparameters
@@ -145,10 +167,14 @@ if __name__ == '__main__':
 
     """ Model """
     h, w = IMSIZE
-    model = SampleModelKeras(in_shape=(h, w, 1), num_classes=num_classes)
-    sgd = optimizers.SGD(lr=learning_rate, momentum=0.9, nesterov=True)
-    #adam = optimizers.Adam(lr=learning_rate, decay=1e-5)
-    model.compile(loss='categorical_crossentropy', optimizer=sgd, metrics=['categorical_accuracy'])
+    in_shape = (h, w, 1)
+    
+    # model = SampleModelKeras(in_shape=in_shape, num_classes=num_classes)
+    model = imagenet(keras.applications.ResNet50, in_shape, num_classes)
+
+    # optimizer = optimizers.SGD(lr=learning_rate, momentum=0.9, nesterov=True)
+    optimizer = optimizers.Adam(lr=learning_rate, decay=1e-5)
+    model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['categorical_accuracy'])
 
     bind_model(model)
 
@@ -210,7 +236,8 @@ if __name__ == '__main__':
                              batch_size=batch_size,
                              # initial_epoch=epoch,
                              callbacks=[reduce_lr],
-                             shuffle=True
+                             shuffle=True,
+                             verbose=0
                              )
             print(hist.history)
             train_acc = hist.history['categorical_accuracy'][0]
