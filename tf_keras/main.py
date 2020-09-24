@@ -19,11 +19,13 @@ from keras.callbacks import ModelCheckpoint, ReduceLROnPlateau
 from keras.utils.training_utils import multi_gpu_model
 import keras.backend.tensorflow_backend as K
 
+# from imblearn.over_sampling import SMOTE
+
 import nsml
 from nsml.constants import DATASET_PATH, GPU_NUM
 
 
-IMSIZE = 400, 200
+IMSIZE = 224, 224
 VAL_RATIO = 0.1
 RANDOM_SEED = 1234
 
@@ -66,8 +68,8 @@ def DataLoad(imdir):
         img_whole = cv2.imread(p, 0)
         h, w = img_whole.shape
         h_, w_ = h, w//2
-        l_img = img_whole[:, :w_]
-        r_img = img_whole[:, w_:2*w_]
+        l_img = img_whole[:, w_:2*w_]
+        r_img = img_whole[:, :w_]
         _, l_cls, r_cls = os.path.basename(p).split('.')[0].split('_')
         if l_cls=='0' or l_cls=='1' or l_cls=='2' or l_cls=='3':
             img.append(l_img);      lb.append(Class2Label(l_cls))
@@ -83,6 +85,17 @@ def ImagePreprocessing(img):
     print('Preprocessing ...')
     for i, im, in enumerate(img):
         origin_shape = im.shape
+
+        # Crop
+        origin_h, origin_w = origin_shape[0], origin_shape[1]
+        start_h = (origin_h - origin_w) // 2
+
+        im = im[
+            start_h:start_h + origin_w,
+            :
+        ]
+        origin_shape = im.shape
+
         # CLAHE
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
         clahe_img = clahe.apply(im)
@@ -101,6 +114,9 @@ def ImagePreprocessing(img):
         ], axis=-1)
         # Resize
         tmp = cv2.resize(im, dsize=(w, h), interpolation=cv2.INTER_AREA)
+
+        if len(tmp.shape) == 2:
+            tmp = np.expand_dims(tmp, axis=2)
         tmp = tmp / 255.
         img[i] = tmp
 
@@ -196,7 +212,9 @@ if __name__ == '__main__':
     in_shape = (h, w, 3)
     
     # model = SampleModelKeras(in_shape=in_shape, num_classes=num_classes)
-    model = imagenet(keras.applications.VGG19, in_shape, num_classes)
+
+    import efficientnet.keras as efn
+    model = imagenet(efn.EfficientNetB0, in_shape, num_classes)
 
     # optimizer = optimizers.SGD(lr=learning_rate, momentum=0.9, nesterov=True)
     optimizer = optimizers.Adam(lr=learning_rate, decay=1e-5)
@@ -220,6 +238,14 @@ if __name__ == '__main__':
         random.shuffle(dataset)
         X = np.array([n[0] for n in dataset])
         Y = np.array([n[1] for n in dataset])
+
+        # sm = SMOTE(random_state=124)
+
+        # indices = np.expand_dims(np.arange(len(Y)), axis=-1)
+        # indices, Y = sm.fit_resample(indices, Y)
+        # X = X[np.squeeze(indices)]
+
+        # print("Resampled", X.shape, Y.shape)
 
         """ Callback """
         monitor = 'categorical_accuracy'
