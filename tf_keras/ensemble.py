@@ -307,6 +307,7 @@ if __name__ == '__main__':
             return F1scores
 
         score = CategoricalF1Score(pred, Y_val, num_classes)
+        print(score)
 
         nsml.report(summary=True, step=0, epoch_total=0, score=score)
         nsml.save(0)
